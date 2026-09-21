@@ -146,7 +146,11 @@ description: Ingest raw literature, incubate ghost topics in batch, cultivate wi
      ```bash
      python .scripts/gatekeeper.py commit --file "<file>" --wiki "<wiki>" --date "YYYY-MM-DD" --log-file ".scratch/log_entry.md" [--terms-file ".scratch/terms.json"] --cluster-wikis "wiki/子卡1.md" "wiki/子卡2.md"
      ```
-4. **挂账阈值合流**：若回执提示 `"flush_recommended": true`，立即执行 `python .scripts/gatekeeper.py flush-terms`。
+4. **即摄即刷铁律 (Immediate Flush Policy)**：只要本次 commit 携带了 `--terms-file`，**无论回执是否提示阈值，必须无条件立即执行合流命令**：
+   ```bash
+   python .scripts/gatekeeper.py flush-terms
+   ```
+   使提炼的新词在 1 秒内永久落盘至受控版本管理的 `glossary.md`，彻底杜绝暂存文件滞留与覆写丢失！
 5. **回归复核**：运行 `python .scripts/gatekeeper.py diff`，确认状态回归 `{"status": "IDLE"}`。
 
 ### Step A6: 能效消耗与认知交付看板
@@ -305,3 +309,4 @@ python .scripts/scan_ghosts.py --json
 5. **合规测试场景隔离**：`run_tests.py` 仅限用于脚本底层迭代时的验收，日常摄取与孵化主流程中绝对严禁调用。
 6. **脚本源码绝对禁窥（Zero Source Inspection）**：🚫 **绝对严禁调用 `view_file` 或检索工具阅读/翻看任何底层脚本源码（包括 `gatekeeper.py`、`slice_raw.py`、`scan_ghosts.py` 等）！所有无头脚本必须严格作为“确定性黑盒 CLI 接口”直接传参调用。**
 7. **工作区写盘约束**：向工作区（`wiki/`、`.scratch/` 等）创建非 Artifact 文件时，🚫 **绝对严禁携带 `ArtifactMetadata` 参数**。
+8. **受控状态暂存文件免死保护**：`.scratch/` 下的 `terms.json`、`log_entry.md` 与物化缓存属于系统受控链路文件，🚫 **绝对严禁执行任何全量清空、批量删除或手动物理删除！**
