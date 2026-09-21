@@ -144,13 +144,21 @@ description: Ingest raw literature, cultivate wiki topic cards, forge bilingual 
    - **全新孵化主题 (N个)**: [[主题名]]
    - **主题对齐演进 (N个)**: [[已有主题]]
    ```
-2. **暂存词表导出**：若有新术语，将新词写入 `.scratch/terms.json`。
+2. **暂存词表导出**：若提炼出新术语，必须写入 `.scratch/terms.json`（严格 UTF-8 无 BOM），字段契约固定如下（无需查阅任何脚本）：
+   ```json
+   [
+     {"zh": "中文术语名称", "en": "English Term", "abbr": "ET"}
+   ]
+   ```
+   *(注：若无英文缩写，abbr 填空字符串 `""` 即可)*
 3. **构建确定性提交命令并执行**：
-   - **常规文献命令**：
+   - **常规文献命令（绝大多数场景）**：
      ```bash
      python .agents/skills/wiki-curator/scripts/gatekeeper.py commit --file "<file>" --wiki "<wiki>" --date "YYYY-MM-DD" --log-file ".scratch/log_entry.md" [--terms-file ".scratch/terms.json"]
      ```
-   - **L1/L4 集群子卡命令（仅限 L1/L4，子卡 $\le 3$ 张）**：
+     > [!IMPORTANT]
+     > **集群参数严格限定**：对于常规 L2/L3 论文、报告或网络文章，**绝对严禁传入 `--cluster-wikis`**！次要概念一律打幽灵双链等待自然孵化。
+   - **L1/L4 集群子卡特权命令（仅限 L1 法定标准或 L4 行业专著，且子卡 $\le 3$ 张）**：
      ```bash
      python .agents/skills/wiki-curator/scripts/gatekeeper.py commit --file "<file>" --wiki "<wiki>" --date "YYYY-MM-DD" --log-file ".scratch/log_entry.md" [--terms-file ".scratch/terms.json"] --cluster-wikis "wiki/子卡1.md" "wiki/子卡2.md"
      ```
@@ -197,3 +205,4 @@ description: Ingest raw literature, cultivate wiki topic cards, forge bilingual 
 3. **人类手记专属保护**：任何卡片中的 `## 4. 个人思考与实战手记` **绝对禁读、禁写、禁改、禁删**。
 4. **权威标准一票否决**：`L6_informal` 绝对禁止作为事实标准出处；机理类主题 Frontmatter 强制填 `null`。
 5. **合规测试场景隔离**：`run_tests.py` 仅限用于脚本迭代与系统级架构验收，日常单篇资料摄取主流程中绝对严禁调用。
+6. **脚本源码绝对禁窥（Zero Source Inspection）**：🚫 **绝对严禁调用 `view_file` 或检索工具阅读/翻看任何底层脚本源码（包括 `gatekeeper.py`、`slice_raw.py`、`scan_ghosts.py` 等）！所有无头脚本必须严格作为“确定性黑盒 CLI 接口”直接传参调用，工序已提供全部参数范式。**
