@@ -84,23 +84,33 @@ else:  # 模式 A/B
             mark("corroborated")  # 独立复现，严禁误标为争议
 ```
 
-### (2) 认识论优先级与防膨胀收敛三级阀 (Convergence Valves)
-- **认识论优先级公理**：**认识论模式优先级高于通用收敛阀**。若属于【模式 C：客观机理】，文献中确证的核心量化动力学指标、反应条件与边界常数，直接享有更新参数表格与插入流变时序表的正向特权。
-- **正向安全演进区划分**：
-  - **神圣禁区**：`## 4. 个人思考与实战手记` 属于人类领地，Agent **绝对禁读、禁写、禁改、禁删**；模式 C 的 Frontmatter 标准字段强制全为 `null`。
-  - **安全演进区**：`## 2. 理论流变与共识演进时序表` 与 `## 5. 衍生研讨与前沿反常` 属于合法知识演进区，Agent 必须在符合认识论时序时执行综合。
-- **Tier 1 (范式迭代 / 跨代突破)**：刷新 Frontmatter + 刷新置顶视口 + 插入流变表对应年份槽位。
-- **Tier 2 (重磅突破 / 关键实证 / 填补断层)**：
-  - 填补了该主题流变时序表中的重大年代空白（历史跨度 $\ge 3\sim 5$ 年）；
-  - 或系行业/跨国级大规模权威实证调研（大样本队列、关键工具断层、重要实务反常）；
-  - **必须作为 Tier 2 插入流变时序表对应年份槽位**，严禁以 Tier 3 忽略！
-- **Tier 3 (常规同行实证 / 局部微小验证)**：
-  - 仅当文献确属常规微小验证且无时序填补价值时方可归入。
-  - **举证责任倒置反思链**：主张归入 Tier 3 前，Agent 必须在推理链中证明：“本文献既无重大年代断层填补，亦无量化机制突破，亦无前沿反常争议，故安全归入 Tier 3”。
-  - 仅在 `## 3. 关联出处与网络` 末尾追加 `[[文献名]]`。
-- **时序表 8 行溢出折叠算法 (Timeline Compaction Protocol)**：
-  - 时序表按年份严格单调升序，基准上限为 $8\sim 9$ 行。
-  - 当插入新文献导致时序表超过 8 行时，**严禁放弃记录新文献，亦严禁删除首行奠基 (`foundation`) 与末行现行标准 (`standard`)**。
-  - **执行折叠合并**：找到中间年代相邻、结论相似的 2~3 个同行微小实证行，合并为单一行：
-    `| YYYY-YYYY | [[文献A]] / [[文献B]] | L3_empirical_peer_reviewed | valid | validation | 多中心队列/同行复现验证与参数标定 |`
-- **单卡行数限制**：单张卡片正文超过 180 行时，触发细胞分裂，主卡退化为 Hub 导航卡，关键子领域派生独立子卡。
+### (2) 收敛三级阀与折叠协议 (Convergence Valves)
+```python
+# 1. 权限边界
+#    神圣禁区: "## 4. 个人思考与实战手记" 严禁读写改删; 模式 C 的 Frontmatter 强制为 null
+#    安全演进区: "## 2. 理论流变与共识演进时序表" 与 "## 5. 衍生研讨与前沿反常" 为法定综合区
+
+# 2. 优先级与收敛判定
+priority: "模式 C (客观机理参数)" > "收敛三级阀"
+
+if mode == "模式C" and doc.has_quantitative_parameters:
+    tier = "Tier 2"  # 核心机理动力学常数直接更新正文与插表
+elif is_paradigm_shift or is_highest_legal_standard:
+    tier = "Tier 1"  # 刷新 Frontmatter + 置顶视口 + 升序插表
+elif (doc.year - timeline.latest_year >= 3) or doc.is_large_scale_benchmark:
+    tier = "Tier 2"  # 填补 >=3~5 年历史断层或关键实证，强制升序插表
+else:
+    tier = "Tier 3"
+    # 归入 Tier 3 必须在思考链显式断言: assert no_gap_fill and no_mechanism_breakthrough
+    append_link("## 3. 关联出处与网络", doc.wikilink)
+
+# 3. 时序表折叠算法: 严格单调升序，基准行数 <= 8
+if len(timeline.rows) > 8:
+    pinned = [timeline.rows[0], timeline.rows[-1]]  # 锁定奠基 (foundation) 与现行标准 (standard/SOTA)
+    folded = fold_adjacent_peers(timeline.rows[1:-1])  # 中间行合并为: | YYYY-YYYY | [[A]] / [[B]] |
+    timeline.rows = [pinned[0]] + folded + [pinned[1]]
+
+# 4. 细胞分裂阈值
+if card.lines > 180:
+    split_card(master_as_hub=True, spawn_subcards=True)
+```
