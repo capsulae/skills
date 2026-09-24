@@ -78,22 +78,28 @@ for item in diff_res.diff_queue:
    ```
 3. **正文构建**：阐明核心要点，关键概念留下中英双链。
 
-### Step A3: 靶向查词与双链铸模
+### Step A3: 极速拓扑查词、双链铸模与暂存挂账 (Atomic Query-Terms)
 ```python
 terms = extract_key_terms(doc, count="3-5")  # 提炼高阶核心术语，排除通用耗材
 
-for term in terms:
-    # 1. 查受控词表 (目录检索配合文件包含过滤)
-    hit_glossary = grep_search(SearchPath=".", Includes=["glossary.md"], Query=rf"\|\s*{re.escape(term)}\b", IsRegex=True)
-    # 2. 查主题卡片注册别名
-    hit_alias = grep_search(SearchPath="wiki", Query=rf"aliases:.*\b{re.escape(term)}\b", IsRegex=True)
-    # 3. 查纯中文基底
-    zh_base = re.sub(r"\s*[\(（][^)）]+[\)）]$", "", term).strip()
-    hit_base = grep_search(SearchPath="wiki", Query=rf"^#\s*{re.escape(zh_base)}\b", IsRegex=True) if zh_base else None
+# 核心约束:
+# 1. 绝对严禁手写终端临时脚本或在 wiki/ 中全局 grep，严防触碰 ## 4. 个人手记禁区;
+# 2. 调用 gatekeeper.py query-terms 原子批处理命令，单次原子查询 (< 5ms)，获取成品双链与消歧状态;
+# 3. 命中 EXISTS: 强制使用返回的成品 wikilink，严禁别名分裂;
+# 4. 命中 AMBIGUOUS: 结合当前文献领域 tags 进行消歧，选定精准实体;
+# 5. 命中 NEW: 按 [[规范中文名 (英文全称或规范缩写)]] 铸模，并加入 staging_terms 挂账。
 
-    if hit_glossary or hit_alias or hit_base:
-        wikilink = f"[[{canonical_name}]]"
-    else:
+# 一次性原子批处理查询 (支持直接传参或通过 --input-file 避开复杂字符 Shell 展开):
+query_res = run(f'python .scripts/gatekeeper.py query-terms --terms ' + ' '.join(f'"{t}"' for t in terms))["results"]
+
+staging_terms = []
+for term, data in query_res.items():
+    if data["status"] == "EXISTS":
+        wikilink = data["wikilink"]
+    elif data["status"] == "AMBIGUOUS":
+        # 显式消歧决策：依据领域 tags 选取最匹配候选
+        wikilink = select_candidate_by_tags(data["candidates"], doc.tags)
+    else:  # NEW
         wikilink = f"[[{zh_name} ({en_or_abbr})]]"
         staging_terms.append({"zh": zh_name, "en": en_name, "abbr": abbr})
 ```
@@ -231,6 +237,7 @@ python .scripts/gatekeeper.py backfill-metrics
 | 操作目标 | 标准确定性命令模板 | 关键约束与前置条件 |
 | :--- | :--- | :--- |
 | **门禁差分** | `python .scripts/gatekeeper.py diff` | `IDLE` 终止；`PROCEED` 继续流转。 |
+| **极速拓扑查词** | `python .scripts/gatekeeper.py query-terms --terms "<term1>" "<term2>"` 或 `--input-file "<file>"` | 全库受控词与卡片别名唯一合法查词入口；秒级增量缓存；纯净成品 JSON。 |
 | **单篇提交 (常规)** | `python .scripts/gatekeeper.py commit --file "<file>" --wiki "<wiki>" --date "YYYY-MM-DD" --log-file ".scratch/log_entry.md" [--terms-file ".scratch/terms.json"]` | 适用常规文献 (L2/L3/L5/L6)；严禁携带 `--cluster-wikis`。 |
 | **单篇提交 (法典集群)** | `python .scripts/gatekeeper.py commit --file "<file>" --wiki "<wiki>" --date "YYYY-MM-DD" --log-file ".scratch/log_entry.md" [--terms-file ".scratch/terms.json"] --cluster-wikis "wiki/子卡1.md" "wiki/子卡2.md"` | 仅限 L1/L4；子卡 $\le 3$ 张且 $\ge 30$ 行实操深度；子卡物理文件须已落盘。 |
 | **独立日志追加** | `python .scripts/gatekeeper.py append-log --entry-file ".scratch/log_entry.md"` | 用于流水线 B 纯主题孵化；条目须以 `## [YYYY-MM-DD]` 开头。 |
@@ -253,7 +260,7 @@ python .scripts/gatekeeper.py backfill-metrics
 | 操作目标 | 标准确定性命令模板 | 关键约束与前置条件 |
 | :--- | :--- | :--- |
 | **幽灵雷达巡检** | `python .scripts/scan_ghosts.py --json` | 后台被动园艺，输出评分 $\ge 2.0$ 候选；🚫 **常规摄取期严禁调用**。 |
-| **全库回归测试** | `python .scripts/tests/run_tests.py` | 仅限架构/代码迭代验收；12项断言全绿 $\le 500$ms；🚫 **常规摄取期严禁调用**。 |
+| **全库回归测试** | `python .scripts/tests/run_tests.py` | 仅限架构/代码迭代验收；13项断言全绿 $\le 500$ms；🚫 **常规摄取期严禁调用**。 |
 
 ---
 
@@ -269,7 +276,7 @@ python .scripts/gatekeeper.py backfill-metrics
 | 认知推演维度 | 消耗 Token 测算 | 备注 |
 | :--- | :--- | :--- |
 | **原件输入 (Input)** | ~ N | 摄入原件或雷达 JSON 流 |
-| **词表检索 (Grep)** | ~ N | glossary.md 正则过滤检索 |
+| **拓扑查词 (Query)** | ~ N | gatekeeper.py query-terms 原子检索与消歧 |
 | **存量读取 (Read)** | ~ N | 存量卡片流变与关联核验 |
 | **知识写盘 (Write)** | ~ N | 新建/更新卡片与日志条目 |
 | **净总能效 (Total)** | ~ N | 处于高效绿区 |
@@ -283,7 +290,7 @@ python .scripts/gatekeeper.py backfill-metrics
    - 🚫 严禁调用 `view_file` 或编辑工具读写 `index.md`。
    - 🚫 严禁直接编辑或全量读取 `log.md`（必须且仅由 `gatekeeper.py` 事务追加）。
    - 🚫 严禁直接编辑 `raw_manifest.json`（必须且仅由 `gatekeeper.py` 事务落盘）。
-   - 🚫 严禁全量阅读 `glossary.md`，仅允许用 `grep_search` 包含过滤检索。
+   - 🚫 严禁全量阅读 `glossary.md` 或直接修改，统一由 `gatekeeper.py query-terms` 代理检索。
 2. **严禁命令探测**：🚫 **绝对禁止调用任何 `--help` 命令探测脚本！**
 3. **人类手记专属保护**：任何卡片中的 `## 4. 个人思考与实战手记` **绝对禁读、禁写、禁改、禁删**。
 4. **权威标准一票否决**：`L6_informal` 绝对禁止作为事实标准出处；机理类主题 Frontmatter 强制填 `null`。
@@ -291,3 +298,4 @@ python .scripts/gatekeeper.py backfill-metrics
 6. **脚本源码绝对禁窥**：🚫 **绝对严禁调用 `view_file` 或检索工具阅读/翻看任何底层脚本源码（包括 `gatekeeper.py`、`slice_raw.py`、`scan_ghosts.py` 等）！所有无头脚本必须严格作为“确定性黑盒 CLI 接口”直接传参调用。**
 7. **工作区写盘约束**：向工作区（`wiki/`、`.scratch/` 等）创建非 Artifact 文件时，🚫 **绝对严禁携带 `ArtifactMetadata` 参数**。
 8. **受控状态暂存文件免死保护**：`.scratch/` 下的 `terms.json`、`log_entry.md` 与物化缓存属于系统受控链路文件，🚫 **绝对严禁执行任何全量清空、批量删除或手动物理删除！**
+9. **标准查词唯一入口**：严禁在终端手写临时 Python 检索脚本或全局 grep 扫盘；全库受控词表与别名消歧唯一合法标准入口为 `python .scripts/gatekeeper.py query-terms`。

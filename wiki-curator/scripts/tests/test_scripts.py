@@ -336,6 +336,104 @@ def test_slice_raw_page_threshold_boundary() -> dict:
     }
 
 
+
+def test_gatekeeper_query_terms_and_cache() -> dict:
+    """用例 6：验证 query-terms 拓扑查词、生化抗穿透、多义消歧与增量缓存"""
+    with SandboxVault() as vault:
+        # 1. 构造正式卡片 1 (带别名与括号)
+        doc_1 = vault.wiki_dir / "子痫前期 (PE).md"
+        doc_1.write_text("""---
+title: "子痫前期 (PE)"
+type: topic
+aliases: ["Preeclampsia", "PE", "妊娠期高血压疾病"]
+tags: ["妇产科", "心血管"]
+epistemic_status: valid
+---
+## 1. 核心机理
+子痫前期正文。
+## 4. 个人思考与实战手记
+人类私密笔记：切勿泄露给 Agent。
+""", encoding="utf-8")
+
+        # 2. 构造正式卡片 2 (产生 PE 缩写冲突与多义性)
+        doc_2 = vault.wiki_dir / "聚乙烯 (PE).md"
+        doc_2.write_text("""---
+title: "聚乙烯 (PE)"
+type: topic
+aliases: ["Polyethylene", "PE"]
+tags: ["材料化学", "高分子"]
+epistemic_status: valid
+---
+## 1. 核心机理
+聚乙烯正文。
+""", encoding="utf-8")
+
+        # 3. 构造草稿卡片 (应被沙箱隔离)
+        insights_dir = vault.wiki_dir / "insights"
+        insights_dir.mkdir(parents=True, exist_ok=True)
+        draft_doc = insights_dir / "前沿假说_20260924.md"
+        draft_doc.write_text("""---
+title: "前沿假说草稿"
+type: speculative_synthesis
+status: draft
+aliases: ["DraftHypothesis"]
+---
+草稿正文。
+""", encoding="utf-8")
+
+        # 4. 构造 glossary.md
+        vault.glossary_file.write_text("""# 受控词表
+| 规范中文名 | 英文全称/缩写 | 规范双链 | 备注说明 |
+| :--- | :--- | :--- | :--- |
+| 乙二胺四乙酸 | EDTA | [[乙二胺四乙酸 (EDTA)]] | 螯合剂 |
+""", encoding="utf-8")
+
+        # 实例化测试 resolver
+        resolver = gatekeeper.TermResolver(vault.vault_dir)
+
+        # 测试 A: 精确匹配 Wiki 卡片
+        res_a = resolver.resolve_terms(["子痫前期", "Preeclampsia"])["results"]
+        assert res_a["子痫前期"]["status"] == "EXISTS"
+        assert res_a["子痫前期"]["wikilink"] == "[[子痫前期 (PE)]]"
+        assert res_a["Preeclampsia"]["status"] == "EXISTS"
+
+        # 测试 B: glossary 精确匹配
+        res_b = resolver.resolve_terms(["EDTA", "乙二胺四乙酸"])["results"]
+        assert res_b["EDTA"]["status"] == "EXISTS"
+        assert res_b["EDTA"]["wikilink"] == "[[乙二胺四乙酸 (EDTA)]]"
+
+        # 测试 C: 多义性冲突消歧 (PE 命中子痫前期与聚乙烯)
+        res_c = resolver.resolve_terms(["PE"])["results"]
+        assert res_c["PE"]["status"] == "AMBIGUOUS"
+        assert len(res_c["PE"]["candidates"]) == 2
+        cand_links = [c["wikilink"] for c in res_c["PE"]["candidates"]]
+        assert "[[子痫前期 (PE)]]" in cand_links
+        assert "[[聚乙烯 (PE)]]" in cand_links
+
+        # 测试 D: 未收录概念与生化特殊字符抗穿透
+        res_d = resolver.resolve_terms(["-OH", "Ca2+", "1,25-(OH)2D3", "全新未知概念"])["results"]
+        assert res_d["-OH"]["status"] == "NEW"
+        assert res_d["Ca2+"]["status"] == "NEW"
+        assert res_d["1,25-(OH)2D3"]["status"] == "NEW"
+        assert res_d["全新未知概念"]["status"] == "NEW"
+
+        # 测试 E: 沙箱隔离草稿不被检索
+        res_e = resolver.resolve_terms(["DraftHypothesis"])["results"]
+        assert res_e["DraftHypothesis"]["status"] == "NEW", "草稿沙箱隔离失败：草稿词条被泄露至索引"
+
+        # 测试 F: 缓存文件生成与秒级增量复用
+        assert resolver.index_file.exists(), "物化缓存文件未生成"
+        res_cached = resolver.resolve_terms(["子痫前期"])["results"]
+        assert res_cached["子痫前期"]["status"] == "EXISTS"
+
+    return {
+        "test": "test_gatekeeper_query_terms_and_cache",
+        "status": "PASS",
+        "detail": "拓扑查词、生化抗穿透、多义消歧与增量缓存全部通过"
+    }
+
+
+
 def run_all_script_tests() -> list[dict]:
     tests = [
         test_gatekeeper_diff_state_machine,
@@ -343,6 +441,7 @@ def run_all_script_tests() -> list[dict]:
         test_gatekeeper_log_append_and_anchor,
         test_scan_ghosts_composite_scoring,
         test_slice_raw_page_threshold_boundary,
+        test_gatekeeper_query_terms_and_cache,
     ]
     results = []
     for t in tests:

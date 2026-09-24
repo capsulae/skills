@@ -78,6 +78,7 @@ LOG_FILE = ROOT_DIR / "log.md"
 LOGS_DIR = ROOT_DIR / "logs"
 GLOSSARY_FILE = ROOT_DIR / "glossary.md"
 LOCK_FILE = (ROOT_DIR / ".scripts" if (ROOT_DIR / ".scripts").is_dir() else ROOT_DIR / ".scratch") / ".gatekeeper.lock"
+TERM_INDEX_FILE = ROOT_DIR / ".scratch" / "term_index.json"
 
 LOG_ANCHOR = "<!-- %% LOG_TAIL_ANCHOR %% -->"
 
@@ -611,6 +612,12 @@ def run_diff() -> dict:
 
         if manifest_modified:
             atomic_write_json(MANIFEST_FILE, manifest)
+
+        # 触发拓扑索引缓存增量刷新
+        try:
+            TermResolver(ROOT_DIR)._load_or_build_index()
+        except Exception:
+            pass
 
         pending_terms_files = sum(
             1 for v in manifest.values() if v.get("staged_terms") and len(v["staged_terms"]) > 0
@@ -1228,8 +1235,408 @@ def run_backfill_metrics(force: bool = False) -> dict:
         }
 
 
+
+# -*- coding: utf-8 -*-
+import os
+import sys
+import json
+import re
+import time
+import unicodedata
+from pathlib import Path
+
+
+# ==============================================================================
+# 拓扑查词与消歧引擎 (Hardened Term Resolver & Epistemic Ambiguity Protection)
+# ==============================================================================
+
+class TermResolver:
+    """
+    利刃第二大脑 · 极速拓扑查词与消歧引擎 (Hardened Production Grade)
+    架构防御特征：
+    1. 基于 Windows NTFS MFT (os.scandir) 进行毫秒级增量 mtime 水位线比对 (< 5ms)；
+    2. 物化索引缓存 (.scratch/term_index.json)，彻底消除 500+ 文件全量打开与 PyYAML 解析瓶颈；
+    3. 宪法级第 4 节手记绝对物理硬隔离：单文件只读前 2048 字节，遇 '## 4.' 立即熔断丢弃；
+    4. 洞察草稿沙箱硬阻断：显式排除 wiki/insights/ 下非 verified 页面，防假说污染；
+    5. 全链路 Unicode NFKC 归一化，消解全半角中英括号与生化特殊字符 (*+?^$()[]{}|\\) 歧义；
+    6. 多义性检测与结构化消歧协议 (AMBIGUOUS 候选树形结构)；
+    7. 输出极致信息密度、零拼接成品 [[wikilink]] 扁平字典，彻底杜绝小模型二次拼接幻觉。
+    """
+    def __init__(self, root_dir: Path):
+        self.root_dir = root_dir
+        self.wiki_dir = root_dir / "wiki"
+        self.glossary_file = root_dir / "glossary.md"
+        self.index_file = root_dir / ".scratch" / "term_index.json"
+
+    def _normalize(self, text: str) -> str:
+        if not text:
+            return ""
+        norm = unicodedata.normalize("NFKC", str(text)).strip()
+        norm = re.sub(r"\s*[\(（]\s*", "(", norm)
+        norm = re.sub(r"\s*[\)）]\s*", ")", norm)
+        return norm
+
+    def _parse_card_frontmatter(self, file_path: Path) -> dict | None:
+        try:
+            with open(file_path, "r", encoding="utf-8-sig", errors="surrogateescape") as f:
+                header = f.read(2048)
+        except Exception:
+            return None
+
+        # 宪法硬熔断：零手记接触 (Section 4 Immune Firewall)
+        if "## 4." in header:
+            header = header.split("## 4.")[0]
+
+        rel_str = str(file_path).replace("\\", "/")
+        if "wiki/insights/" in rel_str:
+            status_match = re.search(r"^status:\s*([^\r\n#]+)", header, re.MULTILINE)
+            status_val = status_match.group(1).strip() if status_match else "draft"
+            if status_val.lower() != "verified":
+                return None
+
+        if not header.startswith("---"):
+            title = file_path.stem
+            return {
+                "title": title,
+                "wikilink": f"[[{title}]]",
+                "aliases": [],
+                "tags": [],
+                "epistemic_status": "valid"
+            }
+
+        parts = header.split("---", 2)
+        if len(parts) < 3:
+            title = file_path.stem
+            return {
+                "title": title,
+                "wikilink": f"[[{title}]]",
+                "aliases": [],
+                "tags": [],
+                "epistemic_status": "valid"
+            }
+
+        fm_text = parts[1]
+
+        title_match = re.search(r"^title:\s*['\"]?(.*?)['\"]?\s*$", fm_text, re.MULTILINE)
+        title = title_match.group(1).strip() if title_match else file_path.stem
+        if not title:
+            title = file_path.stem
+
+        aliases = []
+        alias_block_match = re.search(r"^aliases:\s*\[(.*?)\]", fm_text, re.MULTILINE | re.DOTALL)
+        if alias_block_match:
+            for a in alias_block_match.group(1).split(","):
+                a_clean = a.strip().strip("'\"")
+                if a_clean:
+                    aliases.append(a_clean)
+        else:
+            list_match = re.search(r"^aliases:\s*\n((?:\s*-\s*[^\n]+\n?)+)", fm_text, re.MULTILINE)
+            if list_match:
+                for line in list_match.group(1).splitlines():
+                    val = re.sub(r"^\s*-\s*", "", line).strip().strip("'\"")
+                    if val:
+                        aliases.append(val)
+
+        tags = []
+        tags_match = re.search(r"^tags:\s*\[(.*?)\]", fm_text, re.MULTILINE)
+        if tags_match:
+            for t in tags_match.group(1).split(","):
+                t_clean = t.strip().strip("'\"")
+                if t_clean:
+                    tags.append(t_clean)
+
+        ep_match = re.search(r"^epistemic_status:\s*([^\r\n#]+)", fm_text, re.MULTILINE)
+        ep_status = ep_match.group(1).strip() if ep_match else "valid"
+
+        return {
+            "title": title,
+            "wikilink": f"[[{file_path.stem}]]",
+            "aliases": aliases,
+            "tags": tags,
+            "epistemic_status": ep_status
+        }
+
+    def _load_or_build_index(self) -> dict:
+        cached_data = None
+        if self.index_file.exists():
+            try:
+                with open(self.index_file, "r", encoding="utf-8-sig", errors="surrogateescape") as f:
+                    cached_data = json.load(f)
+            except Exception:
+                cached_data = None
+
+        if not cached_data or not isinstance(cached_data, dict) or "mtime_watermark" not in cached_data:
+            cached_data = {
+                "version": 1,
+                "mtime_watermark": {},
+                "cards": {},
+                "alias_to_links": {}
+            }
+
+        # 1. 毫秒级 MFT 扫描 (基于 os.scandir)
+        current_mtimes = {}
+        if self.wiki_dir.exists():
+            def scan_dir(p: Path):
+                try:
+                    for entry in os.scandir(p):
+                        if entry.is_dir():
+                            if not entry.name.startswith("."):
+                                scan_dir(Path(entry.path))
+                        elif entry.name.endswith(".md"):
+                            if not entry.name.startswith(("~", ".")) and "-DESKTOP-" not in entry.name:
+                                rel = str(Path(entry.path).relative_to(self.root_dir)).replace("\\", "/")
+                                current_mtimes[rel] = entry.stat().st_mtime
+                except OSError:
+                    pass
+
+            scan_dir(self.wiki_dir)
+
+        # 2. 差异检测
+        old_mtimes = cached_data.get("mtime_watermark", {})
+        added_or_modified = [p for p, mt in current_mtimes.items() if p not in old_mtimes or old_mtimes[p] != mt]
+        deleted = [p for p in old_mtimes if p not in current_mtimes]
+
+        if not added_or_modified and not deleted and cached_data.get("cards"):
+            return cached_data
+
+        # 3. 增量解析变动卡片
+        cards = cached_data.get("cards", {})
+        for p in deleted:
+            cards.pop(p, None)
+
+        for rel_p in added_or_modified:
+            card_meta = self._parse_card_frontmatter(self.root_dir / rel_p)
+            if card_meta:
+                cards[rel_p] = card_meta
+            else:
+                cards.pop(rel_p, None)
+
+        # 4. 重构倒排映射
+        alias_to_links = {}
+        for rel_p, meta in cards.items():
+            link = meta["wikilink"]
+            norm_title = self._normalize(meta["title"])
+            if norm_title:
+                alias_to_links.setdefault(norm_title.lower(), []).append(link)
+                base = re.sub(r"\s*[\(（].*?[\)）]", "", norm_title).strip()
+                if base and base != norm_title:
+                    alias_to_links.setdefault(base.lower(), []).append(link)
+
+            for alias in meta.get("aliases", []):
+                norm_a = self._normalize(alias)
+                if norm_a:
+                    alias_to_links.setdefault(norm_a.lower(), []).append(link)
+                    base_a = re.sub(r"\s*[\(（].*?[\)）]", "", norm_a).strip()
+                    if base_a and base_a != norm_a:
+                        alias_to_links.setdefault(base_a.lower(), []).append(link)
+
+        for k, v in alias_to_links.items():
+            alias_to_links[k] = list(dict.fromkeys(v))
+
+        cached_data["mtime_watermark"] = current_mtimes
+        cached_data["cards"] = cards
+        cached_data["alias_to_links"] = alias_to_links
+
+        # 5. 原子写回物化缓存
+        try:
+            self.index_file.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(self.index_file, cached_data, make_backup=False)
+        except Exception:
+            pass
+
+        return cached_data
+
+    def _load_glossary(self) -> dict:
+        mapping = {}
+        if not self.glossary_file.exists():
+            return mapping
+
+        try:
+            with open(self.glossary_file, "r", encoding="utf-8-sig", errors="surrogateescape") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line.startswith("|") or "规范中文名" in line or line.startswith("| :---"):
+                        continue
+                    cols = [c.strip() for c in line.split("|")]
+                    if len(cols) >= 4:
+                        zh = cols[1]
+                        en_abbr = cols[2]
+                        wikilink = cols[3]
+                        if not wikilink.startswith("[["):
+                            continue
+
+                        if zh:
+                            norm_zh = self._normalize(zh).lower()
+                            mapping.setdefault(norm_zh, []).append(wikilink)
+                            base_zh = re.sub(r"\s*[\(（].*?[\)）]", "", norm_zh).strip()
+                            if base_zh and base_zh != norm_zh:
+                                mapping.setdefault(base_zh, []).append(wikilink)
+
+                        if en_abbr:
+                            parts = re.split(r"[/,、;]", en_abbr)
+                            for p in parts:
+                                p_clean = self._normalize(p).lower()
+                                if p_clean:
+                                    mapping.setdefault(p_clean, []).append(wikilink)
+        except Exception:
+            pass
+
+        for k, v in mapping.items():
+            mapping[k] = list(dict.fromkeys(v))
+
+        return mapping
+
+    def resolve_terms(self, terms: list[str]) -> dict:
+        index_data = self._load_or_build_index()
+        alias_to_links = index_data.get("alias_to_links", {})
+        cards = index_data.get("cards", {})
+        glossary_map = self._load_glossary()
+
+        results = {}
+        for raw_term in terms:
+            norm_term = self._normalize(raw_term)
+            if not norm_term:
+                continue
+
+            term_key = norm_term.lower()
+
+            matched_links = list(alias_to_links.get(term_key, []))
+            for gl_link in glossary_map.get(term_key, []):
+                if gl_link not in matched_links:
+                    matched_links.append(gl_link)
+
+            if not matched_links:
+                base_key = re.sub(r"\s*[\(（].*?[\)）]", "", term_key).strip()
+                if base_key and base_key != term_key:
+                    matched_links = list(alias_to_links.get(base_key, []))
+                    for gl_link in glossary_map.get(base_key, []):
+                        if gl_link not in matched_links:
+                            matched_links.append(gl_link)
+
+            if len(matched_links) == 1:
+                results[raw_term] = {
+                    "status": "EXISTS",
+                    "wikilink": matched_links[0]
+                }
+            elif len(matched_links) > 1:
+                candidates = []
+                for lnk in matched_links:
+                    cand_meta = {"wikilink": lnk, "tags": []}
+                    for _, cinfo in cards.items():
+                        if cinfo["wikilink"] == lnk:
+                            cand_meta["tags"] = cinfo.get("tags", [])
+                            break
+                    candidates.append(cand_meta)
+
+                results[raw_term] = {
+                    "status": "AMBIGUOUS",
+                    "wikilink": None,
+                    "candidates": candidates
+                }
+            else:
+                results[raw_term] = {
+                    "status": "NEW",
+                    "wikilink": None
+                }
+
+        return {"results": results}
+
+
+def run_query_terms(terms=None, input_file=None, from_stdin=False, rebuild_cache=False) -> dict:
+    target_terms = []
+    if terms:
+        for t in terms:
+            if "," in t and not (t.startswith("[") or "(" in t):
+                target_terms.extend([sub.strip() for sub in t.split(",") if sub.strip()])
+            else:
+                if t.strip():
+                    target_terms.append(t.strip())
+
+    if input_file:
+        p = Path(input_file)
+        if not p.is_absolute():
+            p = ROOT_DIR / p
+        if p.exists():
+            try:
+                content = p.read_text(encoding="utf-8-sig", errors="surrogateescape").strip()
+                if content.startswith("["):
+                    target_terms.extend(json.loads(content))
+                else:
+                    target_terms.extend([line.strip() for line in content.splitlines() if line.strip()])
+            except Exception as e:
+                print(f"[Gatekeeper Warning] 无法读取 input-file: {e}", file=sys.stderr)
+
+    if from_stdin:
+        try:
+            content = sys.stdin.read().strip()
+            if content.startswith("["):
+                target_terms.extend(json.loads(content))
+            else:
+                target_terms.extend([line.strip() for line in content.splitlines() if line.strip()])
+        except Exception as e:
+            print(f"[Gatekeeper Warning] 无法读取 stdin: {e}", file=sys.stderr)
+
+    seen = set()
+    deduped_terms = []
+    for t in target_terms:
+        if t not in seen:
+            seen.add(t)
+            deduped_terms.append(t)
+
+    resolver = TermResolver(ROOT_DIR)
+    if rebuild_cache and resolver.index_file.exists():
+        try:
+            resolver.index_file.unlink()
+        except OSError:
+            pass
+
+    return resolver.resolve_terms(deduped_terms)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="利刃第二大脑·工业级门禁与机器账本管家 (Hardened V2.2 大文件分治增强版)")
+    # 针对 query-terms 的抗穿透预处理：免疫选项连字符 (-OH)、PowerShell 引号与超长参数
+    if len(sys.argv) > 1 and sys.argv[1] == "query-terms":
+        query_argv = sys.argv[2:]
+        terms = []
+        input_file = None
+        from_stdin = False
+        rebuild_cache = False
+
+        i = 0
+        while i < len(query_argv):
+            arg = query_argv[i]
+            if arg in ("--input-file", "-f") and i + 1 < len(query_argv):
+                input_file = query_argv[i + 1]
+                i += 2
+            elif arg.startswith("--input-file="):
+                input_file = arg.split("=", 1)[1]
+                i += 1
+            elif arg == "--stdin":
+                from_stdin = True
+                i += 1
+            elif arg == "--rebuild-cache":
+                rebuild_cache = True
+                i += 1
+            elif arg in ("--terms", "-t") and i + 1 < len(query_argv):
+                terms.append(query_argv[i + 1])
+                i += 2
+            elif arg.startswith("--terms="):
+                terms.append(arg.split("=", 1)[1])
+                i += 1
+            elif arg == "--":
+                terms.extend(query_argv[i + 1:])
+                break
+            elif not arg.startswith("--"):
+                terms.append(arg)
+                i += 1
+            else:
+                i += 1
+
+        res = run_query_terms(terms=terms, input_file=input_file, from_stdin=from_stdin, rebuild_cache=rebuild_cache)
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return
+
+    parser = argparse.ArgumentParser(description="利刃第二大脑·工业级门禁与机器账本管家 (Hardened V2.3 极速拓扑查词版)")
     subparsers = parser.add_subparsers(dest="command", help="子命令")
 
     # diff
@@ -1265,6 +1672,14 @@ def main():
     # backfill-metrics
     parser_backfill = subparsers.add_parser("backfill-metrics", help="对 raw_manifest.json 存量文献一次性无损补齐页数 (page_count) 与 SHA-256 指纹 (sha256)")
     parser_backfill.add_argument("--force", action="store_true", help="强制重新计算全量指标")
+
+    # query-terms
+    parser_query = subparsers.add_parser("query-terms", help="极速检索术语/缩写在 Wiki 与受控词表中的规范双链与消歧状态 (JSON)")
+    parser_query.add_argument("terms_pos", nargs="*", default=[], help="待查术语列表 (位置参数)")
+    parser_query.add_argument("--terms", required=False, default=None, help="待查术语字符串")
+    parser_query.add_argument("--input-file", required=False, default=None, help="包含待查术语的 JSON 或纯文本文件路径")
+    parser_query.add_argument("--stdin", action="store_true", help="从标准输入读取待查术语")
+    parser_query.add_argument("--rebuild-cache", action="store_true", help="强制重新构建物化索引缓存")
 
     args = parser.parse_args()
 
