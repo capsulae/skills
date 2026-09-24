@@ -63,11 +63,15 @@ standard_summary: "核心量化参数或黄金法则" # 模式 C 填 null
 
 ### (1) 流变决策探针
 ```python
-if mode == "模式C":
-    insert_timeline_asc(new_doc.year)  # 客观机理豁免 ΔT，直接按公开发表年份升序插桩
-else:  # 模式 A/B
+# 模式 A/B 流变决策（模式 C 统一收敛至下方的优先级收敛三级阀）:
+if mode in ["模式A", "模式B"]:
     delta_T = new_doc.year - standard_year
-    if delta_T > 0:  # 前向演进
+    if abs(delta_T) <= 2:  # 优先捕获同代演化窗口 (<= 2年)
+        if contradictory:
+            mark("disputed")
+        else:
+            mark("corroborated")  # 独立同行复现，保持原标准，严禁误标为争议！
+    elif delta_T > 2:  # 真正的前向跨代演进
         if new_doc.level >= standard_level:
             mark_old_as("superseded")
             refresh_standard_viewport()
@@ -75,42 +79,39 @@ else:  # 模式 A/B
             add_viewport_alert("CRITICAL-DISCREPANCY")  # 实证挑战法定标准
         else:
             add_to_anomaly_buffer()  # 低级证据冲突只入缓冲池
-    elif delta_T < 0:  # 逆向历史回溯
+    else:  # delta_T < -2 (历史回溯)
         role = "historical"  # 严禁用早年旧设推翻晚年标准；数学/算法奠基永久保真
-    elif delta_T == 0:  # 同代演化 (<= 2年)
-        if contradictory:
-            mark("disputed")
-        else:
-            mark("corroborated")  # 独立复现，严禁误标为争议
 ```
 
 ### (2) 收敛三级阀与折叠协议 (Convergence Valves)
 ```python
 # 1. 权限边界
-#    神圣禁区: "## 4. 个人思考与实战手记" 严禁读写改删; 模式 C 的 Frontmatter 强制为 null
-#    安全演进区: "## 2. 理论流变与共识演进时序表" 与 "## 5. 衍生研讨与前沿反常" 为法定综合区
+#    神圣禁区: "## 4. 个人思考与实战手记" 绝对禁读写改删; 模式 C 的 Frontmatter 强制为 null
+#    安全演进区: "## 2. 理论流变与共识演进时序表（含反常缓冲池）" 与 "## 3. 关联出处与网络" 为法定综合区
 
 # 2. 优先级与收敛判定
-priority: "模式 C (客观机理参数)" > "收敛三级阀"
+priority: "模式 C (客观机理参数/突破)" > "收敛三级阀"
 
-if mode == "模式C" and doc.has_quantitative_parameters:
-    tier = "Tier 2"  # 核心机理动力学常数直接更新正文与插表
-elif is_paradigm_shift or is_highest_legal_standard:
-    tier = "Tier 1"  # 刷新 Frontmatter + 置顶视口 + 升序插表
+if is_paradigm_shift:
+    tier = "Tier 1"  # 任何模式的范式颠覆必属 Tier 1，刷新置顶视口与核心表
+elif mode == "模式C" and (doc.has_quantitative_parameters or doc.has_mechanism_breakthrough):
+    tier = "Tier 2"  # 模式 C 重大机理突破与关键量化参数正向入表与入正文
+elif is_highest_legal_standard:
+    tier = "Tier 1"  # 模式 A/B 最高法定标准刷新 Frontmatter 与置顶视口
 elif (doc.year - timeline.latest_year >= 3) or doc.is_large_scale_benchmark:
     tier = "Tier 2"  # 填补 >=3~5 年历史断层或关键实证，强制升序插表
 else:
     tier = "Tier 3"
-    # 归入 Tier 3 必须在思考链显式断言: assert no_gap_fill and no_mechanism_breakthrough
+    # 归入 Tier 3 必须在思考链显式断言: assert no_gap_fill and no_mechanism_breakthrough and no_paradigm_shift
     append_link("## 3. 关联出处与网络", doc.wikilink)
 
-# 3. 时序表折叠算法: 严格单调升序，基准行数 <= 8
+# 3. 时序表折叠算法: 严格单调升序，基准行数 <= 8~9
 if len(timeline.rows) > 8:
     pinned = [timeline.rows[0], timeline.rows[-1]]  # 锁定奠基 (foundation) 与现行标准 (standard/SOTA)
     folded = fold_adjacent_peers(timeline.rows[1:-1])  # 中间行合并为: | YYYY-YYYY | [[A]] / [[B]] |
     timeline.rows = [pinned[0]] + folded + [pinned[1]]
 
-# 4. 细胞分裂阈值
+# 4. 细胞分裂阈值: 单卡 > 180 行时主卡转为 Hub 导航卡，派生子卡进行细胞分裂
 if card.lines > 180:
     split_card(master_as_hub=True, spawn_subcards=True)
 ```
