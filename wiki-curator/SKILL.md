@@ -188,7 +188,10 @@ run_command(CommandLine=cmd)
 if staging_terms:
     run_command(CommandLine="python .scripts/gatekeeper.py flush-terms")
 
-# 4. 门禁状态归零核验: 确认 diff 恢复空闲
+# 4. 驾驶舱雷达物化刷新: 保持 index.md 永远最新 (默认门禁 Score >= 2.0 且 Sources >= 1)
+run_command(CommandLine="python .scripts/scan_ghosts.py")
+
+# 5. 门禁状态归零核验: 确认 diff 恢复空闲
 assert run_command(CommandLine="python .scripts/gatekeeper.py diff")["status"] == "IDLE"
 ```
 
@@ -286,7 +289,7 @@ python .scripts/gatekeeper.py backfill-metrics
 ### 3. 雷达与自动化测试
 | 操作目标 | 标准确定性命令模板 | 关键约束与前置条件 |
 | :--- | :--- | :--- |
-| **幽灵雷达巡检** | `python .scripts/scan_ghosts.py --json` | 后台被动园艺，输出评分 $\ge 2.0$ 候选；🚫 常规摄取严禁调用。 |
+| **幽灵雷达巡检与物化** | `python .scripts/scan_ghosts.py [--json]` | 刷新 `.scratch/ghost_radar_cache.json` 驱动 `index.md`；在 Step A5 闭环末尾被动静默触发。 |
 | **全库回归测试** | `python .scripts/tests/run_tests.py` | 仅限架构/代码迭代验收；13项断言全绿 $\le 500$ms；🚫 常规摄取严禁调用。 |
 
 ---
