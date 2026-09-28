@@ -32,7 +32,7 @@ else:
 
 ```mermaid
 flowchart LR
-    A1["A1: 门禁差分"] --> A2["A2: 原文精读"]
+    A1["A1: 门禁差分"] --> A2["A2: 规约查阅与原文精读"]
     A2 --> A3["A3: 查词消歧"]
     A3 --> A4["A4: 铸模织网"]
     A4 --> A5["A5: 原子提交"]
@@ -64,8 +64,14 @@ for item in diff_res.diff_queue:
    - 下游主题卡片: Layer 0 悬停秒看 $\le 5$ 行（置顶 Callout）；Layer 1 决策矩阵 $\le 60$ 行（正文机制与核心表）；Layer 2 原始流水沉淀留指针（出处网络记录章节页码）。
    - 中间草稿暂存 `.scratch/shadow_drafts/`，由 `python .scripts/gatekeeper.py promote-drafts` 过滤中间切片转正合格卡片，再运行 `python .scripts/slice_raw.py audit --wiki "<wiki>"` 审计。
 
-### Step A2: 原文精读与要素提炼
-1. **六级证据与三态模式内联准则**:
+### Step A2: 规范基准查阅与原文精读
+```python
+# 1. 刚性前置：物理读入认识论规范原典（必须且仅能以原典为定级裁决依据，严禁凭内联记忆推演）
+view_file(AbsolutePath=".agents/skills/wiki-curator/references/evidence_levels.md")
+view_file(AbsolutePath=".agents/skills/wiki-curator/references/three_mode_epistemology.md")
+```
+
+1. **六级证据与三态模式裁决 (严格对照已读入的 references 原典)**:
    - 证据梯队: `L1_standard` (法定标准/指南), `L2_causal_synthesis` (顶级Meta/RCT), `L3_empirical_peer_reviewed` (顶刊/发明专利), `L4_industry_framework` (权威白皮书/经典专著), `L5_exploratory` (预印本/案例), `L6_informal` (一票否决禁止作为事实标准)。
    - 模式归属: 模式 A (法定规程), 模式 B (实务指南), 模式 C (客观机理，`standard_*` 强制全填 `null`)。
 2. **核心要素提炼**:
