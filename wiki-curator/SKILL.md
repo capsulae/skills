@@ -52,17 +52,21 @@ for item in diff_res.diff_queue:
     if item.ingestion_track == "STANDARD":
         view_file(AbsolutePath=item.file)  # 常规单篇: 唯一合法读取工具为 view_file，严禁调用 slice_raw.py
     elif item.ingestion_track == "MASSIVE_DUAL_TRACK":
-        # 超长分治: 页数 >= 35 或预估消耗 >= 33,600 Tokens (纯扫描字符/页 < 30 熔断)
-        run_massive_track(item.file)
+        # 超长分治: 页数 >= 35 或预估消耗 >= 33,600 Tokens (纯文本 >= 40k)
+        # 🚫 严禁调用 view_file 连续分段翻阅 raw 原件硬吞！必须且仅能执行以下确定性分治工步：
+        # 1. 全景骨架探测: 提取目录树(TOC)、前言与符号表
+        inspect_res = run_command(CommandLine=f'python .scripts/slice_raw.py inspect --file "{item.file}" --json')
+        # 2. 自然章节语义分治契约规划 (三级自愈: 原生书签 > 印刷目录/字号跳变 > 15页+2~3页滑动重叠兜底 100% 覆盖)
+        plan_res = run_command(CommandLine=f'python .scripts/slice_raw.py plan-subagents --file "{item.file}" --json')
+        # 3. 滑动重叠提取与下游卡片集群锻造 (单 Agent 或派发子任务，严禁 view_file 直读 raw 原件)
+        for task in plan_res.subagents:
+            run_command(CommandLine=f'python .scripts/slice_raw.py extract-slice --file "{item.file}" --pages "{task.pages}" --overlap 2 --out ".scratch/slice.txt"')
+            # 锻造下游主题卡 (Layer 0 Callout <= 5行; Layer 1 决策矩阵 <= 60行; Layer 2 指针)，暂存 .scratch/shadow_drafts/
+        # 4. 架构 Master Hub 主卡 (wiki/主书名.md，承载规范全貌与页码映射) 并过滤转正合格卡片
+        run_command(CommandLine="python .scripts/gatekeeper.py promote-drafts")
+        # 5. 保真度强制审计 (核验章节全貌与拓扑深度，不达标一票否决)
+        run_command(CommandLine=f'python .scripts/slice_raw.py audit --wiki "{item.target_wiki_hint}"')
 ```
-
-#### 超长分治执行规程:
-1. **全景骨架探测**: `python .scripts/slice_raw.py inspect --file "<file>" --json` 提取目录树(TOC)、前言与符号表。
-2. **自然章节语义分治**: 三级自愈（原生书签 > 印刷目录/字号跳变 > 15页+2~3页滑动重叠兜底 100% 覆盖）；运行 `python .scripts/slice_raw.py plan-subagents --file "<file>" --json` 派发契约。
-3. **渐进自足三层架构**:
-   - Master Hub (`wiki/主书名.md`): 承载规范全貌与页码映射。
-   - 下游主题卡片: Layer 0 悬停秒看 $\le 5$ 行（置顶 Callout）；Layer 1 决策矩阵 $\le 60$ 行（正文机制与核心表）；Layer 2 原始流水沉淀留指针（出处网络记录章节页码）。
-   - 中间草稿暂存 `.scratch/shadow_drafts/`，由 `python .scripts/gatekeeper.py promote-drafts` 过滤中间切片转正合格卡片，再运行 `python .scripts/slice_raw.py audit --wiki "<wiki>"` 审计。
 
 ### Step A2: 规范基准查阅与原文精读
 ```python
@@ -183,7 +187,10 @@ if staging_terms:
     write_to_file(TargetFile=".scratch/terms.json", CodeContent=json.dumps(staging_terms, ensure_ascii=False, indent=2), Description="暂存新词表", Overwrite=True)
     cmd += ' --terms-file ".scratch/terms.json"'
 
-if (doc.level in ["L1_standard", "L4_industry_framework"] and cluster_wikis) or (doc.level in ["L2_causal_synthesis", "L3_empirical_peer_reviewed"] and direct_wikis):
+if item.ingestion_track == "MASSIVE_DUAL_TRACK":
+    assert cluster_wikis and len(cluster_wikis) >= 1, "超长文献必须以 Master Hub + 分治卡片集群提交 (--cluster-wikis)，绝对严禁单篇薄卡退化提交！"
+
+if (doc.level in ["L1_standard", "L4_industry_framework"] and cluster_wikis) or (doc.level in ["L2_causal_synthesis", "L3_empirical_peer_reviewed"] and direct_wikis) or (item.ingestion_track == "MASSIVE_DUAL_TRACK" and cluster_wikis):
     spawns = cluster_wikis if cluster_wikis else direct_wikis
     assert len(spawns) <= 3
     cmd += ' --cluster-wikis ' + ' '.join(f'"{w}"' for w in spawns)
