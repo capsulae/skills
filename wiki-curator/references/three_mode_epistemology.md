@@ -90,9 +90,11 @@ if mode in ["模式A", "模式B"]:
 #    安全演进区: "## 2. 理论流变与共识演进时序表（含反常缓冲池）" 与 "## 3. 关联出处与网络" 为法定综合区
 
 # 2. 优先级与收敛判定
-priority: "模式 C (客观机理参数/突破)" > "收敛三级阀"
+priority: "格式世代嗅探 (童子军法则)" > "模式 C (客观机理参数/突破)" > "收敛三级阀"
 
-if is_paradigm_shift:
+if is_legacy_format:
+    upgrade_to_three_mode_standard(card)  # 嗅探命中历史非三态或残缺卡片，强制豁免 Tier 3，就地升级为最新三态四段式
+elif is_paradigm_shift:
     tier = "Tier 1"  # 任何模式的范式颠覆必属 Tier 1，刷新置顶视口与核心表
 elif mode == "模式C" and (doc.has_quantitative_parameters or doc.has_mechanism_breakthrough):
     tier = "Tier 2"  # 模式 C 重大机理突破与关键量化参数正向入表与入正文

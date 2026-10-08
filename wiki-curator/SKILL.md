@@ -140,10 +140,17 @@ for term, data in query_res.items():
    - **手记物理截断防线**: 查阅存量卡片时调用 `view_file` 必须利用 `EndLine` 参数显式截断在 `## 4.` 之前，物理阻断手记进入上下文！
    - **双向织网**: 严禁仅向母主题单向连线！必须在讨论领域内检索存量卡片建立双向互链。
    - **同代演化判定 (发表年份相近 $\le 2$ 年)**: 若结论一致判定为 `corroborated`（独立同行复现），**严禁误标为争议 (`disputed`)**！直接记录验证结论；若出现直接矛盾方可标为 `disputed`。
+   - **存量触达即升级法则 (Opportunistic Progressive Modernization / 童子军法则)**:
+     - 凡在文献摄取（流水线 A）、主题孵化（流水线 B）或关联织网中触达任何存量主题卡片时，必须前置执行**格式世代嗅探**：
+       1. **三态特征嗅探**：检查是否缺失 Frontmatter 标准元数据（`standard_year` / `standard_source` / `standard_summary`）与三态置顶视口（`[!CURRENT-STANDARD]` / `[!CURRENT-GUIDELINE]` / `[!NOTE]`）；
+       2. **四段式结构嗅探**：检查是否缺失 `## 1.`、`## 2. 理论流变与共识演进时序表` 或 `## 4. 个人思考与实战手记` 保护锚点；
+       3. **触发格式升格**：若命中历史非三态或残缺卡片，**强制豁免 Tier 3 的“仅追加链接”约束**，在合并认知内容的同时，顺手将其原地升级为现行三态标准四段式卡片（保留手记隔离领地）！
    - **认识论优先级与收敛三级阀**:
      ```python
      # [思维决策逻辑 - 仅供推理决策，无需手写代码运行]
-     if is_paradigm_shift:
+     if is_legacy_format:
+         upgrade_to_three_mode_standard(card)  # 格式世代嗅探命中历史卡片，豁免 Tier 3，就地升格为标准三态四段式
+     elif is_paradigm_shift:
          tier = "Tier 1"  # 任何模式的范式颠覆必属 Tier 1，刷新置顶视口与核心表
      elif doc.mode == "模式C" and (doc.has_quantitative_parameters or doc.has_mechanism_breakthrough):
          tier = "Tier 2"  # 模式 C 重大机理突破与关键量化参数正向入表与入正文
