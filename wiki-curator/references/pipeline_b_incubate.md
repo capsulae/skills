@@ -25,6 +25,10 @@ rescan_res = run_command(CommandLine="python .scripts/scan_ghosts.py --json")
 assert not any(t in rescan_res for t in approved_targets)
 
 # Step 5: 原子追加独立日志 (纯主题批量孵化严禁调用 commit，必须且仅能使用 append-log)
+incubation_cnt = len(approved_targets)
+incubation_log = f"""## [{date}] 批量孵化 | 待孵化概念与实体池批量孵化 ({incubation_cnt}项)
+- **全新孵化主题 ({incubation_cnt}个)**:
+""" + "\n".join(f"  - [[{t}]]" for t in approved_targets)
 write_to_file(TargetFile=".scratch/log_entry.md", CodeContent=incubation_log, Description="记录批量主题孵化日志", Overwrite=True)
 run_command(CommandLine='python .scripts/gatekeeper.py append-log --entry-file ".scratch/log_entry.md"')
 ```

@@ -246,10 +246,13 @@ if card.lines > 180:
 | **物理指标补齐** | `python .scripts/gatekeeper.py backfill-metrics` | 差分提示 `backfill_recommended` 时执行。 |
 | **日志周期归档** | `python .scripts/gatekeeper.py archive-log` | 差分提示 `log_archive_recommended` 时执行。 |
 | **幽灵雷达巡检** | `python .scripts/scan_ghosts.py [--json]` | 刷新 `.scratch/ghost_radar_cache.json` 驱动 `index.md`。 |
+| **物理能效测算** | `python .scripts/calculate_tokens.py -m` | 生成交付简报前执行，提取物理 Token 遥测真值回填看板。 |
 
 ---
 
 ## 4. 交付简报模板
+
+在输出最终交付简报前，**必须执行 `python .scripts/calculate_tokens.py -m` 抓取底层真实遥测数据**，严禁使用 `~ N` 等主观心算估算：
 
 ```markdown
 ### 📊 任务执行完成
@@ -257,12 +260,13 @@ if card.lines > 180:
 - **涉及卡片**: [[卡片名称列表]]
 - **状态同步**: 账本 / 日志 / 雷达确定性落盘，闭环完成。
 
-#### ⏱️ 能效消耗看板
-| 认知推演维度 | 消耗 Token 测算 | 备注 |
-| :--- | :--- | :--- |
-| **原件输入 (Input)** | ~ N | 摄入原件或雷达 JSON 流 |
-| **拓扑查词 (Query)** | ~ N | gatekeeper.py query-terms 原子检索与消歧 |
-| **存量读取 (Read)** | ~ N | 存量卡片流变与关联核验 |
-| **知识写盘 (Write)** | ~ N | 新建/更新卡片与日志条目 |
-| **净总能效 (Total)** | ~ N | 处于高效绿区 |
+#### ⏱️ 能效消耗看板（物理真实遥测）
+> **物理遥测基准**：共计 `{planner_steps}` 轮推理，上下文缓存命中率达 **`{cache_hit_rate_pct}%`**。
+
+| 认知推演维度 | 物理 Token 数 | 占比 / 命中率 | 备注 |
+| :--- | :--- | :--- | :--- |
+| **未命中裸输入 (Prompt Delta)** | `{input_tokens}` | {inp_pct}% | 原件文本增量与新指令输入 |
+| **上下文缓存命中 (Cache Read)** | `{cache_read_tokens}` | **{cache_hit_rate_pct}%** | 知识库与规则缓存命中（节省 ~N% 计算开销） |
+| **模型推理生成 (Output)** | `{output_tokens}` | {out_pct}% | 思维链思考 (CoT) 与工具调用参数 |
+| **系统总吞吐规模 (Gross)** | `{gross_throughput}` | 100.0% | 本次会话物理吞吐总量 |
 ```

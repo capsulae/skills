@@ -36,10 +36,16 @@ run_command(CommandLine=f'python .scripts/slice_raw.py audit --wiki "{item.targe
 # Step 7: 集群原子提交闭环
 assert cluster_wikis and 1 <= len(cluster_wikis) <= 5, "超长文献必须以 Master Hub + 分治卡片集群提交 (--cluster-wikis)，严禁单篇薄卡退化提交！"
 
+cluster_cnt = len(cluster_wikis) if cluster_wikis else 0
+cluster_desc = ", ".join(f"[[{w}]]" for w in cluster_wikis) if cluster_cnt > 0 else "无"
+
+aligned_cnt = len(aligned_topics) if aligned_topics else 0
+aligned_desc = ", ".join(f"[[{w}]]" for w in aligned_topics) if aligned_cnt > 0 else "无"
+
 log_text = f"""## [{date}] 摄取 | {doc.title}
 - **新增资料出处 (1篇)**: [[{doc.wiki_title}]]
-- **全新孵化主题 ({len(cluster_wikis)}个)**: {cluster_links}
-- **主题对齐演进 (M个)**: [[{aligned_topic}]]"""
+- **全新孵化主题 ({cluster_cnt}个)**: {cluster_desc}
+- **主题对齐演进 ({aligned_cnt}个)**: {aligned_desc}"""
 write_to_file(TargetFile=".scratch/log_entry.md", CodeContent=log_text, Description="生成超长文献分治摄取日志", Overwrite=True)
 
 cmd = f'python .scripts/gatekeeper.py commit --file "{item.file}" --wiki "{item.target_wiki_hint}" --date "{date}" --log-file ".scratch/log_entry.md" --cluster-wikis ' + ' '.join(f'"{w}"' for w in cluster_wikis)

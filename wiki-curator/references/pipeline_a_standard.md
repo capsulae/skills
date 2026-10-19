@@ -20,10 +20,16 @@ view_file(AbsolutePath=item.file)
 # 3. 存量主题演进: 检索讨论领域内的存量主题卡（wiki/<规范中文名>.md），调用 view_file(EndLine=手记标题前) 读取，严格按 SKILL.md §2.4 执行童子军嗅探、流变探针、收敛三级阀、时序表折叠与双向互链
 
 # Step A5: 单篇提交原子闭环
+spawned_cnt = len(direct_spawns) if direct_spawns else 0
+spawned_desc = ", ".join(f"[[{w}]]" for w in direct_spawns) if spawned_cnt > 0 else "无"
+
+aligned_cnt = len(aligned_topics) if aligned_topics else 0
+aligned_desc = ", ".join(f"[[{w}]]" for w in aligned_topics) if aligned_cnt > 0 else "无"
+
 log_text = f"""## [{date}] 摄取 | {doc.title}
 - **新增资料出处 (1篇)**: [[{doc.wiki_title}]]
-- **全新孵化主题 (N个)**: {spawned_links_or_none}
-- **主题对齐演进 (M个)**: [[{aligned_topic}]]"""
+- **全新孵化主题 ({spawned_cnt}个)**: {spawned_desc}
+- **主题对齐演进 ({aligned_cnt}个)**: {aligned_desc}"""
 write_to_file(TargetFile=".scratch/log_entry.md", CodeContent=log_text, Description="生成摄取日志", Overwrite=True)
 
 cmd = f'python .scripts/gatekeeper.py commit --file "{item.file}" --wiki "{item.target_wiki_hint}" --date "{date}" --log-file ".scratch/log_entry.md"'
